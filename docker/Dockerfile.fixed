@@ -19,11 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     automake \
     autoconf \
     libtool-bin \
+    libtool \
     pkg-config \
     git \
     ca-certificates \
     autoconf-archive \
-    libtool \
     # Core dependencies
     libssl-dev \
     zlib1g-dev \
@@ -104,10 +104,8 @@ COPY . /usr/src/freeswitch
 
 # Build FreeSWITCH
 WORKDIR /usr/src/freeswitch
-# Install required libtool files
-RUN apt-get update && apt-get install -y libtool-bin libtool autoconf-archive
 
-# Run bootstrap with verbose output to help troubleshoot
+# Run bootstrap with verbose output and additional autotools steps to fix AM_PROG_CC_C_O and LT_INIT errors
 RUN ./bootstrap.sh -j -v && \
     aclocal && \
     libtoolize --force && \
