@@ -1,0 +1,35 @@
+version: '3'
+
+services:
+  freeswitch:
+    build: .
+    container_name: freeswitch
+    volumes:
+      - ./conf:/opt/freeswitch/conf
+      - fs-recordings:/opt/freeswitch/recordings
+      - fs-storage:/opt/freeswitch/storage
+    ports:
+      # SIP Ports
+      - "5060:5060/tcp"
+      - "5060:5060/udp"
+      - "5080:5080/tcp"
+      - "5080:5080/udp"
+      # Alternative SIP Ports
+      - "5066:5066/tcp"
+      # WSS
+      - "7443:7443/tcp"
+      # Event Socket
+      - "8021:8021/tcp"
+      # RTP Ports
+      - "16384-32768:16384-32768/udp"
+    restart: unless-stopped
+    networks:
+      - fs-network
+
+networks:
+  fs-network:
+    driver: bridge
+
+volumes:
+  fs-recordings:
+  fs-storage:

@@ -1,0 +1,52 @@
+# Git related
+.git/
+.gitignore
+.gitattributes
+
+# Build artifacts
+**/*.o
+**/*.a
+**/*.so
+**/*.lo
+**/*.la
+**/*.Po
+**/.libs/
+**/.deps/
+**/autom4te.cache/
+**/.dirstamp
+
+# Specific directories to exclude
+docs.codexhub.ai/
+build/
+tests/
+debian/
+docker/
+w32/
+yum/
+htdocs/
+support-d/
+fscomm/
+images/
+.github/
+.vscode/
+
+# Log files and databases
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
