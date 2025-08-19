@@ -1,0 +1,120 @@
+name: Build Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  autotools-setup:
+    name: Verify AutoTools Setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup AutoTools Environment
+        run: |
+          chmod +x ./scripts/setup_autotools_env.sh
+          ./scripts/setup_autotools_env.sh
+          
+      - name: Run Bootstrap
+        run: |
+          ./bootstrap.sh -j -v
+          
+      - name: Configure
+        run: |
+          ./configure --enable-portable-binary
+      
+  linux-build:
+    name: Linux Build
+    needs: autotools-setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
+        compiler: [gcc]
+        build_type: [Release]
+        include:
+          - os: ubuntu-22.04
+            compiler: clang
+            build_type: Debug
+    container:
+      image: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential cmake automake autoconf libtool-bin pkg-config git ca-certificates \
+            libssl-dev zlib1g-dev libdb-dev unixodbc-dev libncurses5-dev libexpat1-dev libgdbm-dev bison \
+            erlang-dev libtpl-dev libtiff5-dev uuid-dev libogg-dev libspeex-dev libspeexdsp-dev \
+            libpcre2-dev libedit-dev libsqlite3-dev libcurl4-openssl-dev nasm \
+            libldns-dev python3-dev libavformat-dev libswscale-dev libswresample-dev liblua5.2-dev \
+            libopus-dev libpq-dev libsndfile1-dev libflac-dev libvorbis-dev libshout3-dev \
+            libmpg123-dev libmp3lame-dev libsodium-dev
+      
+      - name: Setup AutoTools Environment
+        run: |
+          chmod +x ./scripts/setup_autotools_env.sh
+          ./scripts/setup_autotools_env.sh
+      
+      - name: Set Compiler
+        if: matrix.compiler == 'clang'
+        run: |
+          apt-get install -y clang
+          export CC=clang
+          export CXX=clang++
+      
+      - name: Set Build Type Flags
+        run: |
+          if [[ "${{ matrix.build_type }}" == "Debug" ]]; then
+            export CFLAGS="-g -O0"
+            export CXXFLAGS="-g -O0"
+          else
+            export CFLAGS="-O2"
+            export CXXFLAGS="-O2"
+          fi
+      
+      - name: Build FreeSWITCH
+        run: |
+          ./bootstrap.sh -j
+          ./configure --enable-portable-binary
+          make -j$(nproc)
+      
+      - name: Run Tests
+        run: |
+          make check
+          
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Docker BuildX
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build Docker Image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false
+          tags: freeswitch:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  windows-build:
+    name: Windows Build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1
+      
+      - name: Build FreeSWITCH
+        run: |
+          .\msbuild.cmd

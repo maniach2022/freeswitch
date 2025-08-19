@@ -1,0 +1,133 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Get Version
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: FreeSWITCH ${{ steps.get_version.outputs.version }}
+          draft: true
+          prerelease: false
+          body: |
+            FreeSWITCH Release ${{ steps.get_version.outputs.version }}
+            
+            ## What's Changed
+            Please fill in the release notes here
+            
+            ## Installation
+            Download the appropriate package for your platform and follow the installation instructions
+          
+  build-packages:
+    name: Build Packages
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, debian-bullseye]
+    container:
+      image: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential cmake automake autoconf libtool-bin pkg-config git ca-certificates \
+            libssl-dev zlib1g-dev libdb-dev unixodbc-dev libncurses5-dev libexpat1-dev libgdbm-dev bison \
+            erlang-dev libtpl-dev libtiff5-dev uuid-dev libogg-dev libspeex-dev libspeexdsp-dev \
+            libpcre2-dev libedit-dev libsqlite3-dev libcurl4-openssl-dev nasm \
+            libldns-dev python3-dev libavformat-dev libswscale-dev libswresample-dev liblua5.2-dev \
+            libopus-dev libpq-dev libsndfile1-dev libflac-dev libvorbis-dev libshout3-dev \
+            libmpg123-dev libmp3lame-dev libsodium-dev \
+            debhelper devscripts dh-autoreconf
+      
+      - name: Setup AutoTools Environment
+        run: |
+          chmod +x ./scripts/setup_autotools_env.sh
+          ./scripts/setup_autotools_env.sh
+      
+      - name: Build FreeSWITCH
+        run: |
+          ./bootstrap.sh -j
+          ./configure --enable-portable-binary
+          make -j$(nproc)
+      
+      - name: Create DEB Package
+        run: |
+          cd debian
+          ./bootstrap.sh -p freeswitch
+          cd ..
+          dpkg-buildpackage -us -uc -b
+      
+      - name: Prepare Packages
+        run: |
+          mkdir -p packages
+          cp ../freeswitch*.deb packages/
+          ls -la packages/
+      
+      - name: Upload Packages as Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: freeswitch-${{ matrix.os }}-packages
+          path: packages/*.deb
+      
+      - name: Upload Package to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: packages/freeswitch_${{ needs.create-release.outputs.version }}_amd64.deb
+          asset_name: freeswitch-${{ matrix.os }}-${{ needs.create-release.outputs.version }}_amd64.deb
+          asset_content_type: application/vnd.debian.binary-package
+          
+  build-docker:
+    name: Build and Push Docker Image
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            freeswitch/freeswitch:latest
+            freeswitch/freeswitch:${{ needs.create-release.outputs.version }}

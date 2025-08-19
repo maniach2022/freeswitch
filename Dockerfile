@@ -102,15 +102,27 @@ COPY . /usr/src/freeswitch
 
 # Build FreeSWITCH
 WORKDIR /usr/src/freeswitch
-RUN ./bootstrap.sh -j && \
-    ./configure --enable-portable-binary \
+# Create m4 directory and fix missing autotools files
+RUN mkdir -p m4 build/config \
+    && cp -f /usr/share/aclocal/libtool.m4 m4/ \
+    && cp -f /usr/share/aclocal/ltargz.m4 m4/ \
+    && cp -f /usr/share/aclocal/ltdl.m4 m4/ \
+    && cp -f /usr/share/aclocal/ltoptions.m4 m4/ \
+    && cp -f /usr/share/aclocal/ltsugar.m4 m4/ \
+    && cp -f /usr/share/aclocal/ltversion.m4 m4/ \
+    && cp -f /usr/share/aclocal/lt~obsolete.m4 m4/ \
+    && echo "AC_CONFIG_MACRO_DIRS([m4])" >> configure.ac \
+    && echo "ACLOCAL_AMFLAGS = -I m4" >> Makefile.am \
+    # Run bootstrap with correct macros in place
+    && ./bootstrap.sh -j -v \
+    && ./configure --enable-portable-binary \
                 --prefix=${FS_HOME} \
                 --with-rundir=/var/run/freeswitch \
-                --with-logdir=/var/log/freeswitch && \
-    make -j$(nproc) && \
-    make install && \
-    make cd-sounds-install && \
-    make cd-moh-install
+                --with-logdir=/var/log/freeswitch \
+    && make -j$(nproc) \
+    && make install \
+    && make cd-sounds-install \
+    && make cd-moh-install
 
 # Cleanup source and build dependencies
 RUN apt-get update && apt-get -y install --no-install-recommends \

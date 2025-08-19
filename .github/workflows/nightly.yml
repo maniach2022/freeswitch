@@ -1,0 +1,91 @@
+name: Nightly Builds
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run at 2 AM UTC every day
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  nightly-build:
+    name: Nightly Build
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bullseye-slim
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: develop
+      
+      - name: Setup Dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential cmake automake autoconf libtool-bin pkg-config git ca-certificates \
+            libssl-dev zlib1g-dev libdb-dev unixodbc-dev libncurses5-dev libexpat1-dev libgdbm-dev bison \
+            erlang-dev libtpl-dev libtiff5-dev uuid-dev libogg-dev libspeex-dev libspeexdsp-dev \
+            libpcre2-dev libedit-dev libsqlite3-dev libcurl4-openssl-dev nasm \
+            libldns-dev python3-dev libavformat-dev libswscale-dev libswresample-dev liblua5.2-dev \
+            libopus-dev libpq-dev libsndfile1-dev libflac-dev libvorbis-dev libshout3-dev \
+            libmpg123-dev libmp3lame-dev libsodium-dev
+      
+      - name: Setup AutoTools Environment
+        run: |
+          chmod +x ./scripts/setup_autotools_env.sh
+          ./scripts/setup_autotools_env.sh
+      
+      - name: Build FreeSWITCH
+        run: |
+          ./bootstrap.sh -j -v
+          ./configure --enable-portable-binary --prefix=/opt/freeswitch
+          make -j$(nproc)
+          make install
+          make cd-sounds-install
+          make cd-moh-install
+      
+      - name: Create Artifact
+        run: |
+          TIMESTAMP=$(date +%Y%m%d)
+          tar -czvf freeswitch-nightly-${TIMESTAMP}.tar.gz /opt/freeswitch
+          sha256sum freeswitch-nightly-${TIMESTAMP}.tar.gz > freeswitch-nightly-${TIMESTAMP}.tar.gz.sha256
+      
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: freeswitch-nightly
+          path: |
+            freeswitch-nightly-*.tar.gz
+            freeswitch-nightly-*.tar.gz.sha256
+          retention-days: 7
+      
+  docker-nightly:
+    name: Docker Nightly Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: develop
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to Docker Hub
+        if: github.repository == 'signalwire/freeswitch'  # Only push if running on official repo
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ github.repository == 'signalwire/freeswitch' }}
+          tags: |
+            freeswitch/freeswitch:nightly
+            freeswitch/freeswitch:nightly-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
